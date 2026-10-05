@@ -56,7 +56,7 @@ async function syncSystemRoles(prisma: PrismaClient) {
 async function resetDatabase(prisma: PrismaClient) {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE results, samples, parameters, sampling_points, audit_logs, refresh_tokens,
-      user_privileges, user_roles, role_permissions, role_parents, roles, permissions, users CASCADE
+      user_privileges, user_roles, role_permissions, role_parents, roles, permissions, users RESTART IDENTITY CASCADE
   `);
 }
 

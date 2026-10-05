@@ -104,7 +104,11 @@ export class UsersService {
       },
     });
     if (!user) throw AppError.notFound('User');
-    const permissions = await this.authorization.permissionsOf(userId);
+    const [permissions, catalog] = await Promise.all([
+      this.authorization.permissionsOf(userId),
+      this.prisma.permission.findMany({ select: { code: true, description: true } }),
+    ]);
+    const descriptions = new Map(catalog.map((permission) => [permission.code, permission.description]));
     const now = new Date();
     return {
       id: user.id,
@@ -138,7 +142,10 @@ export class UsersService {
         grantedBy: privilege.grantedBy,
       })),
       permissions: permissions.list(),
-      decisions: permissions.decisionsList(),
+      decisions: permissions.decisionsList().map((decision) => ({
+        ...decision,
+        description: descriptions.get(decision.permission) ?? null,
+      })),
     };
   }
 

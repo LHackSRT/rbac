@@ -1,0 +1,267 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access management
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  LOCKED
+}
+
+enum PrivilegeEffect {
+  ALLOW
+  DENY
+}
+
+model User {
+  id                  String     @id @default(uuid())
+  email               String     @unique
+  firstName           String
+  lastName            String
+  passwordHash        String
+  status              UserStatus @default(ACTIVE)
+  failedLoginAttempts Int        @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  roles              UserRole[]      @relation("UserRoleUser")
+  assignedRoles      UserRole[]      @relation("UserRoleAssigner")
+  privileges         UserPrivilege[] @relation("UserPrivilegeUser")
+  grantedPrivileges  UserPrivilege[] @relation("UserPrivilegeGrantor")
+  refreshTokens      RefreshToken[]
+  collectedSamples   Sample[]        @relation("SampleCollector")
+  analyzedSamples    Sample[]        @relation("SampleAnalyst")
+  validatedSamples   Sample[]        @relation("SampleValidator")
+  enteredResults     Result[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Roles this role inherits permissions from.
+  parents     RoleParent[]     @relation("RoleChild")
+  /// Roles inheriting from this role.
+  children    RoleParent[]     @relation("RoleParent")
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model RoleParent {
+  roleId   String
+  parentId String
+  role     Role   @relation("RoleChild", fields: [roleId], references: [id], onDelete: Cascade)
+  parent   Role   @relation("RoleParent", fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, parentId])
+  @@map("role_parents")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  /// "resource:action" (e.g. "sample:update:own"), or "*" for every permission.
+  code        String  @unique
+  resource    String
+  action      String
+  description String
+
+  roles      RolePermission[]
+  privileges UserPrivilege[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId       String
+  roleId       String
+  assignedById String?
+  assignedAt   DateTime  @default(now())
+  expiresAt    DateTime?
+
+  user       User  @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  role       Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedBy User? @relation("UserRoleAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+/// A permission granted (ALLOW) or withdrawn (DENY) directly on a user, on top of their roles.
+model UserPrivilege {
+  id           String          @id @default(uuid())
+  userId       String
+  permissionId String
+  effect       PrivilegeEffect
+  reason       String?
+  grantedById  String?
+  createdAt    DateTime        @default(now())
+  expiresAt    DateTime?
+
+  user       User       @relation("UserPrivilegeUser", fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantedBy  User?      @relation("UserPrivilegeGrantor", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, permissionId])
+  @@map("user_privileges")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetType String?
+  targetId   String?
+  details    Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Laboratory domain
+// ---------------------------------------------------------------------------
+
+enum SamplingPointType {
+  GROUNDWATER
+  SURFACE_WATER
+  TREATMENT_PLANT
+  RESERVOIR
+  DISTRIBUTION_NETWORK
+}
+
+enum ParameterCategory {
+  PHYSICOCHEMICAL
+  MICROBIOLOGICAL
+}
+
+enum SampleStatus {
+  REGISTERED
+  ANALYZED
+  VALIDATED
+}
+
+model SamplingPoint {
+  id          String            @id @default(uuid())
+  code        String            @unique
+  name        String
+  type        SamplingPointType
+  location    String?
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  samples Sample[]
+
+  @@map("sampling_points")
+}
+
+model Parameter {
+  id        String            @id @default(uuid())
+  code      String            @unique
+  name      String
+  unit      String
+  category  ParameterCategory
+  /// Lower compliance limit (inclusive), null when there is none.
+  minValue  Float?
+  /// Upper compliance limit (inclusive), null when there is none.
+  maxValue  Float?
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  results Result[]
+
+  @@map("parameters")
+}
+
+model Sample {
+  id              String       @id @default(uuid())
+  seq             Int          @unique @default(autoincrement())
+  samplingPointId String
+  sampledAt       DateTime
+  notes           String?
+  status          SampleStatus @default(REGISTERED)
+  collectedById   String
+  analyzedById    String?
+  analyzedAt      DateTime?
+  validatedById   String?
+  validatedAt     DateTime?
+  rejectionReason String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  samplingPoint SamplingPoint @relation(fields: [samplingPointId], references: [id])
+  collectedBy   User          @relation("SampleCollector", fields: [collectedById], references: [id])
+  analyzedBy    User?         @relation("SampleAnalyst", fields: [analyzedById], references: [id])
+  validatedBy   User?         @relation("SampleValidator", fields: [validatedById], references: [id])
+  results       Result[]
+
+  @@index([status])
+  @@map("samples")
+}
+
+model Result {
+  id          String    @id @default(uuid())
+  sampleId    String
+  parameterId String
+  value       Float?
+  enteredById String?
+  enteredAt   DateTime?
+
+  sample    Sample    @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  parameter Parameter @relation(fields: [parameterId], references: [id])
+  enteredBy User?     @relation(fields: [enteredById], references: [id])
+
+  @@unique([sampleId, parameterId])
+  @@map("results")
+}

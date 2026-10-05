@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rbac
+      POSTGRES_PASSWORD: rbac
+      POSTGRES_DB: rbac
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rbac -d rbac"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://rbac:rbac@db:5432/rbac?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-in-production-please}
+      CORS_ORIGIN: http://localhost:8080
+      COOKIE_SECURE: "false"
+      DEMO_MODE: "true"
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  db-data:

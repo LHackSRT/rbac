@@ -7,7 +7,9 @@ import { config } from './config';
 /** HTTP setup shared by the server and the end-to-end tests. */
 export function configureApp(app: NestExpressApplication) {
   app.setGlobalPrefix('api');
-  app.set('trust proxy', 'loopback');
+  // Trust X-Forwarded-For from local and private-network proxies (Vite dev server, nginx container)
+  // so that rate limiting and audit use the real client address.
+  app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
   app.use(helmet());
   app.use(cookieParser());
   app.enableCors({ origin: config.corsOrigins, credentials: true });
